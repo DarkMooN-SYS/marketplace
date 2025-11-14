@@ -1,0 +1,171 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function: Check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Helper function: Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function: Check if user owns the resource
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+    
+    // SECURITY: Users collection - strict access control
+    match /users/{userId} {
+      // Users can only read/write their own data
+      allow read, write: if isOwner(userId);
+      // Admins can read all users
+      allow read: if isAdmin();
+      // SECURITY: Prevent users from changing their own role or balance
+      allow update: if isOwner(userId) && 
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'balance']));
+    }
+    
+    // SECURITY: Products collection
+    match /products/{productId} {
+      // Only approved products are publicly readable
+      allow read: if resource.data.status == 'approved';
+      // Authenticated users can create products
+      allow create: if isAuthenticated() && 
+        request.resource.data.sellerId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      // Only owner or admin can update
+      allow update: if isAuthenticated() && 
+        (request.auth.uid == resource.data.sellerId || isAdmin());
+      // Only owner or admin can delete
+      allow delete: if isAuthenticated() && 
+        (request.auth.uid == resource.data.sellerId || isAdmin());
+    }
+    
+    // SECURITY: Reviews collection
+    match /reviews/{reviewId} {
+      // Reviews are publicly readable
+      allow read: if true;
+      // Authenticated users can create reviews
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      // Only owner or admin can update/delete
+      allow update, delete: if isAuthenticated() && 
+        (request.auth.uid == resource.data.userId || isAdmin());
+    }
+    
+    // SECURITY: Orders collection
+    match /orders/{orderId} {
+      // Buyer, seller, or admin can read
+      allow read: if isAuthenticated() && 
+        (request.auth.uid == resource.data.buyerId || 
+         request.auth.uid == resource.data.sellerId ||
+         isAdmin());
+      // Only buyer can create orders
+      allow create: if isAuthenticated() && 
+        request.resource.data.buyerId == request.auth.uid;
+      // Buyer, seller, or admin can update
+      allow update: if isAuthenticated() && 
+        (request.auth.uid == resource.data.buyerId || 
+         request.auth.uid == resource.data.sellerId ||
+         isAdmin());
+      // Only admin can delete
+      allow delete: if isAdmin();
+    }
+    
+    // SECURITY: Surveys collection
+    match /surveys/{surveyId} {
+      // Only approved surveys are publicly readable
+      allow read: if resource.data.status == 'approved';
+      // Authenticated users can create surveys
+      allow create: if isAuthenticated() && 
+        request.resource.data.submitterId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      // Only owner or admin can update
+      allow update: if isAuthenticated() && 
+        (request.auth.uid == resource.data.submitterId || isAdmin());
+      // Only admin can delete
+      allow delete: if isAdmin();
+    }
+    
+    // SECURITY: Survey responses collection
+    match /surveyResponses/{responseId} {
+      // Only owner can read their responses
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      // Admin can read all responses
+      allow read: if isAdmin();
+      // Users can create their own responses
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      // Users can update their own responses
+      allow update: if isAuthenticated() && 
+        request.auth.uid == resource.data.userId;
+      // Only admin can delete
+      allow delete: if isAdmin();
+    }
+    
+    // SECURITY: Transactions collection (wallet history)
+    match /transactions/{transactionId} {
+      // Users can only read their own transactions
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      // Admin can read all transactions
+      allow read: if isAdmin();
+      // Only server can create transactions (no client writes)
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+    
+    // SECURITY: Sessions collection (device tracking)
+    match /sessions/{sessionId} {
+      // Users can only read their own sessions
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      // Admin can read all sessions
+      allow read: if isAdmin();
+      // Only server can manage sessions
+      allow create, update, delete: if false;
+    }
+    
+    // SECURITY: Advertisements collection
+    match /advertisements/{adId} {
+      // Approved ads are publicly readable
+      allow read: if resource.data.status == 'approved';
+      // Authenticated users can create ads
+      allow create: if isAuthenticated() && 
+        request.resource.data.submitterId == request.auth.uid;
+      // Only admin can update/delete
+      allow update, delete: if isAdmin();
+    }
+    
+    // SECURITY: News collection
+    match /news/{newsId} {
+      // Approved news are publicly readable
+      allow read: if resource.data.status == 'approved';
+      // Authenticated users can create news
+      allow create: if isAuthenticated() && 
+        request.resource.data.submitterId == request.auth.uid;
+      // Only admin can update/delete
+      allow update, delete: if isAdmin();
+    }
+    
+    // SECURITY: Weblinks collection
+    match /weblinks/{weblinkId} {
+      // Approved weblinks are publicly readable
+      allow read: if resource.data.status == 'approved';
+      // Authenticated users can create weblinks
+      allow create: if isAuthenticated() && 
+        request.resource.data.submitterId == request.auth.uid;
+      // Only admin can update/delete
+      allow update, delete: if isAdmin();
+    }
+    
+    // SECURITY: Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
